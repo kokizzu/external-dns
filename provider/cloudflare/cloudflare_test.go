@@ -21,16 +21,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
 
-	cloudflare "github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go"
 	"github.com/maxatome/go-testdeep/td"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/internal/testutils"
 	"sigs.k8s.io/external-dns/plan"
@@ -895,7 +895,7 @@ func TestCloudflareZones(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assert.Equal(t, 1, len(zones))
+	assert.Len(t, zones, 1)
 	assert.Equal(t, "bar.com", zones[0].Name)
 }
 
@@ -932,7 +932,7 @@ func TestCloudFlareZonesWithIDFilter(t *testing.T) {
 	}
 
 	// foo.com should *not* be returned as it doesn't match ZoneID filter
-	assert.Equal(t, 1, len(zones))
+	assert.Len(t, zones, 1)
 	assert.Equal(t, "bar.com", zones[0].Name)
 }
 
@@ -991,7 +991,7 @@ func TestCloudflareRecords(t *testing.T) {
 	if err != nil {
 		t.Errorf("should not fail, %s", err)
 	}
-	assert.Equal(t, 2, len(records))
+	assert.Len(t, records, 2)
 	client.dnsRecordsError = errors.New("failed to list dns records")
 	_, err = p.Records(ctx)
 	if err == nil {
@@ -1204,7 +1204,7 @@ func TestCloudflareDryRunApplyChanges(t *testing.T) {
 	if err != nil {
 		t.Errorf("should not fail, %s", err)
 	}
-	assert.Equal(t, 0, len(records), "should not have any records")
+	assert.Empty(t, records, "should not have any records")
 }
 
 func TestCloudflareApplyChangesError(t *testing.T) {
@@ -1245,13 +1245,13 @@ func TestCloudflareGetRecordID(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, "", p.getRecordID(recordsMap, cloudflare.DNSRecord{
+	assert.Empty(t, p.getRecordID(recordsMap, cloudflare.DNSRecord{
 		Name:    "foo.com",
 		Type:    endpoint.RecordTypeA,
 		Content: "foobar",
 	}))
 
-	assert.Equal(t, "", p.getRecordID(recordsMap, cloudflare.DNSRecord{
+	assert.Empty(t, p.getRecordID(recordsMap, cloudflare.DNSRecord{
 		Name:    "foo.com",
 		Type:    endpoint.RecordTypeCNAME,
 		Content: "fizfuz",
@@ -1262,7 +1262,7 @@ func TestCloudflareGetRecordID(t *testing.T) {
 		Type:    endpoint.RecordTypeCNAME,
 		Content: "foobar",
 	}))
-	assert.Equal(t, "", p.getRecordID(recordsMap, cloudflare.DNSRecord{
+	assert.Empty(t, p.getRecordID(recordsMap, cloudflare.DNSRecord{
 		Name:    "bar.de",
 		Type:    endpoint.RecordTypeA,
 		Content: "2.3.4.5",
@@ -1579,7 +1579,7 @@ func TestProviderPropertiesIdempotency(t *testing.T) {
 			if err != nil {
 				t.Errorf("should not fail, %s", err)
 			}
-			assert.Equal(t, 1, len(current))
+			assert.Len(t, current, 1)
 
 			desired := []*endpoint.Endpoint{}
 			for _, c := range current {
@@ -1608,15 +1608,15 @@ func TestProviderPropertiesIdempotency(t *testing.T) {
 			if plan.Changes == nil {
 				return
 			}
-			assert.Equal(t, 0, len(plan.Changes.Create), "should not have creates")
-			assert.Equal(t, 0, len(plan.Changes.Delete), "should not have deletes")
+			assert.Empty(t, plan.Changes.Create, "should not have creates")
+			assert.Empty(t, plan.Changes.Delete, "should not have deletes")
 
 			if test.ShouldBeUpdated {
-				assert.Equal(t, 1, len(plan.Changes.UpdateNew), "should not have new updates")
-				assert.Equal(t, 1, len(plan.Changes.UpdateOld), "should not have old updates")
+				assert.Len(t, plan.Changes.UpdateNew, 1, "should not have new updates")
+				assert.Len(t, plan.Changes.UpdateOld, 1, "should not have old updates")
 			} else {
-				assert.Equal(t, 0, len(plan.Changes.UpdateNew), "should not have new updates")
-				assert.Equal(t, 0, len(plan.Changes.UpdateOld), "should not have old updates")
+				assert.Empty(t, plan.Changes.UpdateNew, "should not have new updates")
+				assert.Empty(t, plan.Changes.UpdateOld, "should not have old updates")
 			}
 		})
 	}
@@ -1754,10 +1754,10 @@ func TestCustomTTLWithEnabledProxyNotChanged(t *testing.T) {
 
 	planned := plan.Calculate()
 
-	assert.Equal(t, 0, len(planned.Changes.Create), "no new changes should be here")
-	assert.Equal(t, 0, len(planned.Changes.UpdateNew), "no new changes should be here")
-	assert.Equal(t, 0, len(planned.Changes.UpdateOld), "no new changes should be here")
-	assert.Equal(t, 0, len(planned.Changes.Delete), "no new changes should be here")
+	assert.Empty(t, planned.Changes.Create, "no new changes should be here")
+	assert.Empty(t, planned.Changes.UpdateNew, "no new changes should be here")
+	assert.Empty(t, planned.Changes.UpdateOld, "no new changes should be here")
+	assert.Empty(t, planned.Changes.Delete, "no new changes should be here")
 }
 
 func TestCloudFlareProvider_Region(t *testing.T) {
@@ -2100,7 +2100,7 @@ func checkFailed(name string, err error, shouldFail bool) error {
 		return fmt.Errorf("should fail - %q", name)
 	}
 	if !errors.Is(err, nil) && !shouldFail {
-		return fmt.Errorf("should not fail - %q, %v", name, err)
+		return fmt.Errorf("should not fail - %q, %w", name, err)
 	}
 	return nil
 }
@@ -2795,7 +2795,7 @@ func TestCloudflareDisabledCustomHostnameOperations(t *testing.T) {
 			t.Error(e)
 		}
 		if tc.testChanges {
-			assert.Equal(t, planned.Changes.HasChanges(), false, "no new changes should be here")
+			assert.False(t, planned.Changes.HasChanges(), "no new changes should be here")
 		}
 	}
 }
@@ -2983,338 +2983,7 @@ func TestCloudflareListCustomHostnamesWithPagionation(t *testing.T) {
 	if chErr != nil {
 		t.Errorf("should not fail - %v", chErr)
 	}
-	assert.Equal(t, len(chs), CustomHostnamesNumber)
-}
-
-func Test_getRegionKey(t *testing.T) {
-	type args struct {
-		endpoint         *endpoint.Endpoint
-		defaultRegionKey string
-	}
-	tests := []struct {
-		name string
-		args args
-		want string
-	}{
-		{
-			name: "no region key",
-			args: args{
-				endpoint: &endpoint.Endpoint{
-					RecordType: "A",
-				},
-				defaultRegionKey: "",
-			},
-			want: "",
-		},
-		{
-			name: "default region key",
-			args: args{
-				endpoint: &endpoint.Endpoint{
-					RecordType: "A",
-				},
-				defaultRegionKey: "us",
-			},
-			want: "us",
-		},
-		{
-			name: "endpoint with region key",
-			args: args{
-				endpoint: &endpoint.Endpoint{
-					RecordType: "A",
-					ProviderSpecific: endpoint.ProviderSpecific{
-						{
-							Name:  "external-dns.alpha.kubernetes.io/cloudflare-region-key",
-							Value: "eu",
-						},
-					},
-				},
-				defaultRegionKey: "us",
-			},
-			want: "eu",
-		},
-		{
-			name: "endpoint with empty region key",
-			args: args{
-				endpoint: &endpoint.Endpoint{
-					RecordType: "A",
-					ProviderSpecific: endpoint.ProviderSpecific{
-						{
-							Name:  "external-dns.alpha.kubernetes.io/cloudflare-region-key",
-							Value: "",
-						},
-					},
-				},
-				defaultRegionKey: "us",
-			},
-			want: "",
-		},
-		{
-			name: "unsupported record type",
-			args: args{
-				endpoint: &endpoint.Endpoint{
-					RecordType: "TXT",
-					ProviderSpecific: endpoint.ProviderSpecific{
-						{
-							Name:  "external-dns.alpha.kubernetes.io/cloudflare-region-key",
-							Value: "eu",
-						},
-					},
-				},
-				defaultRegionKey: "us",
-			},
-			want: "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := getRegionKey(tt.args.endpoint, tt.args.defaultRegionKey); got != tt.want {
-				t.Errorf("getRegionKey() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_dataLocalizationRegionalHostnamesChanges(t *testing.T) {
-	cmpDataLocalizationRegionalHostnameChange := func(i, j DataLocalizationRegionalHostnameChange) int {
-		if i.Action == j.Action {
-			return 0
-		}
-		if i.Hostname < j.Hostname {
-			return -1
-		}
-		return 1
-	}
-	type args struct {
-		changes []*cloudFlareChange
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    []DataLocalizationRegionalHostnameChange
-		wantErr bool
-	}{
-		{
-			name: "empty input",
-			args: args{
-				changes: []*cloudFlareChange{},
-			},
-			want:    nil,
-			wantErr: false,
-		},
-		{
-			name: "changes without RegionalHostname",
-			args: args{
-				changes: []*cloudFlareChange{
-					{
-						Action: cloudFlareCreate,
-						ResourceRecord: cloudflare.DNSRecord{
-							Name: "example.com",
-						},
-						RegionalHostname: cloudflare.RegionalHostname{}, // Empty
-					},
-				},
-			},
-			want:    nil,
-			wantErr: false,
-		},
-		{
-			name: "change with empty RegionKey",
-			args: args{
-				changes: []*cloudFlareChange{
-					{
-						Action: cloudFlareCreate,
-						ResourceRecord: cloudflare.DNSRecord{
-							Name: "example.com",
-						},
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "", // Empty region key
-						},
-					},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "conflicting region keys",
-			args: args{
-				changes: []*cloudFlareChange{
-					{
-						Action: cloudFlareCreate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "eu",
-						},
-					},
-					{
-						Action: cloudFlareCreate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "us", // Different region key for same hostname
-						},
-					},
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "update takes precedence over create & delete",
-			args: args{
-				changes: []*cloudFlareChange{
-					{
-						Action: cloudFlareCreate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "eu",
-						},
-					},
-					{
-						Action: cloudFlareUpdate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "eu",
-						},
-					},
-					{
-						Action: cloudFlareDelete,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "eu",
-						},
-					},
-				},
-			},
-			want: []DataLocalizationRegionalHostnameChange{
-				{
-					Action: cloudFlareUpdate,
-					RegionalHostname: cloudflare.RegionalHostname{
-						Hostname:  "example.com",
-						RegionKey: "eu",
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "create after delete becomes update",
-			args: args{
-				changes: []*cloudFlareChange{
-					{
-						Action: cloudFlareDelete,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "eu",
-						},
-					},
-					{
-						Action: cloudFlareCreate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example.com",
-							RegionKey: "eu",
-						},
-					},
-				},
-			},
-			want: []DataLocalizationRegionalHostnameChange{
-				{
-					Action: cloudFlareUpdate,
-					RegionalHostname: cloudflare.RegionalHostname{
-						Hostname:  "example.com",
-						RegionKey: "eu",
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "consolidate mixed actions for different hostnames",
-			args: args{
-				changes: []*cloudFlareChange{
-					{
-						Action: cloudFlareCreate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example1.com",
-							RegionKey: "eu",
-						},
-					},
-					{
-						Action: cloudFlareUpdate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example2.com",
-							RegionKey: "us",
-						},
-					},
-					{
-						Action: cloudFlareDelete,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example3.com",
-							RegionKey: "ap",
-						},
-					},
-					// duplicated actions
-					{
-						Action: cloudFlareCreate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example1.com",
-							RegionKey: "eu",
-						},
-					},
-					{
-						Action: cloudFlareUpdate,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example2.com",
-							RegionKey: "us",
-						},
-					},
-					{
-						Action: cloudFlareDelete,
-						RegionalHostname: cloudflare.RegionalHostname{
-							Hostname:  "example3.com",
-							RegionKey: "ap",
-						},
-					},
-				},
-			},
-			want: []DataLocalizationRegionalHostnameChange{
-				{
-					Action: cloudFlareCreate,
-					RegionalHostname: cloudflare.RegionalHostname{
-						Hostname:  "example1.com",
-						RegionKey: "eu",
-					},
-				},
-				{
-					Action: cloudFlareUpdate,
-					RegionalHostname: cloudflare.RegionalHostname{
-						Hostname:  "example2.com",
-						RegionKey: "us",
-					},
-				},
-				{
-					Action: cloudFlareDelete,
-					RegionalHostname: cloudflare.RegionalHostname{
-						Hostname:  "example3.com",
-						RegionKey: "ap",
-					},
-				},
-			},
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := dataLocalizationRegionalHostnamesChanges(tt.args.changes)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("dataLocalizationRegionalHostnamesChanges() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			slices.SortFunc(got, cmpDataLocalizationRegionalHostnameChange)
-			slices.SortFunc(tt.want, cmpDataLocalizationRegionalHostnameChange)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("dataLocalizationRegionalHostnamesChanges() = %v, want %v", got, tt.want)
-			}
-		})
-	}
+	assert.Len(t, chs, CustomHostnamesNumber)
 }
 
 func TestZoneHasPaidPlan(t *testing.T) {
@@ -3325,9 +2994,9 @@ func TestZoneHasPaidPlan(t *testing.T) {
 		zoneIDFilter: provider.NewZoneIDFilter([]string{""}),
 	}
 
-	assert.Equal(t, false, cfprovider.ZoneHasPaidPlan("subdomain.foo.com"))
-	assert.Equal(t, true, cfprovider.ZoneHasPaidPlan("subdomain.bar.com"))
-	assert.Equal(t, false, cfprovider.ZoneHasPaidPlan("invaliddomain"))
+	assert.False(t, cfprovider.ZoneHasPaidPlan("subdomain.foo.com"))
+	assert.True(t, cfprovider.ZoneHasPaidPlan("subdomain.bar.com"))
+	assert.False(t, cfprovider.ZoneHasPaidPlan("invaliddomain"))
 
 	client.zoneDetailsError = errors.New("zone lookup failed")
 	cfproviderWithZoneError := &CloudFlareProvider{
@@ -3335,5 +3004,5 @@ func TestZoneHasPaidPlan(t *testing.T) {
 		domainFilter: endpoint.NewDomainFilter([]string{"foo.com", "bar.com"}),
 		zoneIDFilter: provider.NewZoneIDFilter([]string{""}),
 	}
-	assert.Equal(t, false, cfproviderWithZoneError.ZoneHasPaidPlan("subdomain.foo.com"))
+	assert.False(t, cfproviderWithZoneError.ZoneHasPaidPlan("subdomain.foo.com"))
 }

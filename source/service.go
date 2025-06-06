@@ -19,7 +19,9 @@ package source
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -33,10 +35,21 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
+	"sigs.k8s.io/external-dns/source/informers"
+
 	"sigs.k8s.io/external-dns/source/annotations"
 
 	"sigs.k8s.io/external-dns/endpoint"
 	"sigs.k8s.io/external-dns/source/fqdn"
+)
+
+var (
+	knownServiceTypes = map[v1.ServiceType]struct{}{
+		v1.ServiceTypeClusterIP:    {}, // Default service type exposes the service on a cluster-internal IP.
+		v1.ServiceTypeNodePort:     {}, // Exposes the service on each node's IP at a static port.
+		v1.ServiceTypeLoadBalancer: {}, // Exposes the service externally using a cloud provider's load balancer.
+		v1.ServiceTypeExternalName: {}, // Maps the service to an external DNS name.
+	}
 )
 
 // serviceSource is an implementation of Source for Kubernetes service objects.
@@ -45,14 +58,13 @@ import (
 // matched services' entrypoints it will return a corresponding
 // Endpoint object.
 type serviceSource struct {
-	client           kubernetes.Interface
-	namespace        string
-	annotationFilter string
+	client                kubernetes.Interface
+	namespace             string
+	annotationFilter      string
+	labelSelector         labels.Selector
+	fqdnTemplate          *template.Template
+	combineFQDNAnnotation bool
 
-	// process Services with legacy annotations
-	compatibility                  string
-	fqdnTemplate                   *template.Template
-	combineFQDNAnnotation          bool
 	ignoreHostnameAnnotation       bool
 	publishInternal                bool
 	publishHostIP                  bool
@@ -63,9 +75,11 @@ type serviceSource struct {
 	endpointsInformer              coreinformers.EndpointsInformer
 	podInformer                    coreinformers.PodInformer
 	nodeInformer                   coreinformers.NodeInformer
-	serviceTypeFilter              map[string]struct{}
-	labelSelector                  labels.Selector
+	serviceTypeFilter              *serviceTypes
 	exposeInternalIPv6             bool
+
+	// process Services with legacy annotations
+	compatibility string
 }
 
 // NewServiceSource creates a new serviceSource with the given config.
@@ -76,7 +90,7 @@ func NewServiceSource(ctx context.Context, kubeClient kubernetes.Interface, name
 	}
 
 	// Use shared informers to listen for add/update/delete of services/pods/nodes in the specified namespace.
-	// Set resync period to 0, to prevent processing when nothing has changed
+	// Set the resync period to 0 to prevent processing when nothing has changed
 	informerFactory := kubeinformers.NewSharedInformerFactoryWithOptions(kubeClient, 0, kubeinformers.WithNamespace(namespace))
 	serviceInformer := informerFactory.Core().V1().Services()
 	endpointsInformer := informerFactory.Core().V1().Endpoints()
@@ -112,15 +126,14 @@ func NewServiceSource(ctx context.Context, kubeClient kubernetes.Interface, name
 	informerFactory.Start(ctx.Done())
 
 	// wait for the local cache to be populated.
-	if err := waitForCacheSync(context.Background(), informerFactory); err != nil {
+	if err := informers.WaitForCacheSync(context.Background(), informerFactory); err != nil {
 		return nil, err
 	}
 
-	// Transform the slice into a map so it will
-	// be way much easier and fast to filter later
-	serviceTypes := make(map[string]struct{})
-	for _, serviceType := range serviceTypeFilter {
-		serviceTypes[serviceType] = struct{}{}
+	// Transform the slice into a map so it will be way much easier and fast to filter later
+	sTypesFilter, err := newServiceTypesFilter(serviceTypeFilter)
+	if err != nil {
+		return nil, err
 	}
 
 	return &serviceSource{
@@ -138,7 +151,7 @@ func NewServiceSource(ctx context.Context, kubeClient kubernetes.Interface, name
 		endpointsInformer:              endpointsInformer,
 		podInformer:                    podInformer,
 		nodeInformer:                   nodeInformer,
-		serviceTypeFilter:              serviceTypes,
+		serviceTypeFilter:              sTypesFilter,
 		labelSelector:                  labelSelector,
 		resolveLoadBalancerHostname:    resolveLoadBalancerHostname,
 		listenEndpointEvents:           listenEndpointEvents,
@@ -146,20 +159,19 @@ func NewServiceSource(ctx context.Context, kubeClient kubernetes.Interface, name
 	}, nil
 }
 
-// Endpoints returns endpoint objects for each service that should be processed.
-func (sc *serviceSource) Endpoints(ctx context.Context) ([]*endpoint.Endpoint, error) {
+// Endpoints return endpoint objects for each service that should be processed.
+func (sc *serviceSource) Endpoints(_ context.Context) ([]*endpoint.Endpoint, error) {
 	services, err := sc.serviceInformer.Lister().Services(sc.namespace).List(sc.labelSelector)
-	if err != nil {
-		return nil, err
-	}
-	services, err = sc.filterByAnnotations(services)
 	if err != nil {
 		return nil, err
 	}
 
 	// filter on service types if at least one has been provided
-	if len(sc.serviceTypeFilter) > 0 {
-		services = sc.filterByServiceType(services)
+	services = sc.filterByServiceType(services)
+
+	services, err = sc.filterByAnnotations(services)
+	if err != nil {
+		return nil, err
 	}
 
 	endpoints := []*endpoint.Endpoint{}
@@ -425,11 +437,7 @@ func (sc *serviceSource) endpoints(svc *v1.Service) []*endpoint.Endpoint {
 
 // filterByAnnotations filters a list of services by a given annotation selector.
 func (sc *serviceSource) filterByAnnotations(services []*v1.Service) ([]*v1.Service, error) {
-	labelSelector, err := metav1.ParseToLabelSelector(sc.annotationFilter)
-	if err != nil {
-		return nil, err
-	}
-	selector, err := metav1.LabelSelectorAsSelector(labelSelector)
+	selector, err := annotations.ParseFilter(sc.annotationFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -447,21 +455,23 @@ func (sc *serviceSource) filterByAnnotations(services []*v1.Service) ([]*v1.Serv
 			filteredList = append(filteredList, service)
 		}
 	}
-
+	log.Debugf("filtered %d services out of %d with annotation filter", len(filteredList), len(services))
 	return filteredList, nil
 }
 
-// filterByServiceType filters services according their types
+// filterByServiceType filters services according to their types
 func (sc *serviceSource) filterByServiceType(services []*v1.Service) []*v1.Service {
-	filteredList := []*v1.Service{}
+	if !sc.serviceTypeFilter.enabled || len(services) == 0 {
+		return services
+	}
+	var result []*v1.Service
 	for _, service := range services {
-		// Check if the service is of the given type or not
-		if _, ok := sc.serviceTypeFilter[string(service.Spec.Type)]; ok {
-			filteredList = append(filteredList, service)
+		if _, ok := sc.serviceTypeFilter.types[service.Spec.Type]; ok {
+			result = append(result, service)
 		}
 	}
-
-	return filteredList
+	log.Debugf("filtered %d services out of %d with service types filter %q", len(result), len(services), slices.Collect(maps.Keys(sc.serviceTypeFilter.types)))
+	return result
 }
 
 func (sc *serviceSource) setResourceLabel(service *v1.Service, endpoints []*endpoint.Endpoint) {
@@ -586,68 +596,87 @@ func getPodConditionFromList(conditions []v1.PodCondition, conditionType v1.PodC
 	return -1, nil
 }
 
+// nodesExternalTrafficPolicyTypeLocal filters nodes that have running pods belonging to the given NodePort service
+// with externalTrafficPolicy=Local. Returns a prioritized slice of nodes, favoring those with ready, non-terminating pods.
+func (sc *serviceSource) nodesExternalTrafficPolicyTypeLocal(svc *v1.Service) []*v1.Node {
+	var nodesReady []*v1.Node
+	var nodesRunning []*v1.Node
+	var nodes []*v1.Node
+	nodesMap := map[*v1.Node]struct{}{}
+
+	pods := sc.pods(svc)
+
+	for _, v := range pods {
+		if v.Status.Phase == v1.PodRunning {
+			node, err := sc.nodeInformer.Lister().Get(v.Spec.NodeName)
+			if err != nil {
+				log.Debugf("Unable to find node where Pod %s is running", v.Spec.Hostname)
+				continue
+			}
+
+			if _, ok := nodesMap[node]; !ok {
+				nodesMap[node] = *new(struct{})
+				nodesRunning = append(nodesRunning, node)
+
+				if isPodStatusReady(v.Status) {
+					nodesReady = append(nodesReady, node)
+					// Check pod not terminating
+					if v.GetDeletionTimestamp() == nil {
+						nodes = append(nodes, node)
+					}
+				}
+			}
+		}
+	}
+
+	// Prioritize nodes with non-terminating ready pods
+	// If none available, fall back to nodes with ready pods
+	// If still none, use nodes with any running pods
+	if len(nodes) > 0 {
+		// Works the same as service endpoints
+	} else if len(nodesReady) > 0 {
+		// 2 level of panic modes as safeguard, because old wrong behavior can be used by someone
+		// Publish all endpoints not always a bad thing
+		log.Debugf("All pods in terminating state, use ready")
+		nodes = nodesReady
+	} else {
+		log.Debugf("All pods not ready, use all running")
+		nodes = nodesRunning
+	}
+
+	return nodes
+}
+
+// pods retrieve a slice of pods associated with the given Service
+func (sc *serviceSource) pods(svc *v1.Service) []*v1.Pod {
+	labelSelector, err := metav1.ParseToLabelSelector(labels.Set(svc.Spec.Selector).AsSelectorPreValidated().String())
+	if err != nil {
+		return nil
+	}
+	selector, err := metav1.LabelSelectorAsSelector(labelSelector)
+	if err != nil {
+		return nil
+	}
+	pods, err := sc.podInformer.Lister().Pods(svc.Namespace).List(selector)
+	if err != nil {
+		return nil
+	}
+
+	return pods
+}
+
 func (sc *serviceSource) extractNodePortTargets(svc *v1.Service) (endpoint.Targets, error) {
 	var (
 		internalIPs endpoint.Targets
 		externalIPs endpoint.Targets
 		ipv6IPs     endpoint.Targets
 		nodes       []*v1.Node
-		err         error
 	)
 
-	switch svc.Spec.ExternalTrafficPolicy {
-	case v1.ServiceExternalTrafficPolicyTypeLocal:
-		nodesMap := map[*v1.Node]struct{}{}
-		labelSelector, err := metav1.ParseToLabelSelector(labels.Set(svc.Spec.Selector).AsSelectorPreValidated().String())
-		if err != nil {
-			return nil, err
-		}
-		selector, err := metav1.LabelSelectorAsSelector(labelSelector)
-		if err != nil {
-			return nil, err
-		}
-		pods, err := sc.podInformer.Lister().Pods(svc.Namespace).List(selector)
-		if err != nil {
-			return nil, err
-		}
-
-		var nodesReady []*v1.Node
-		var nodesRunning []*v1.Node
-		for _, v := range pods {
-			if v.Status.Phase == v1.PodRunning {
-				node, err := sc.nodeInformer.Lister().Get(v.Spec.NodeName)
-				if err != nil {
-					log.Debugf("Unable to find node where Pod %s is running", v.Spec.Hostname)
-					continue
-				}
-
-				if _, ok := nodesMap[node]; !ok {
-					nodesMap[node] = *new(struct{})
-					nodesRunning = append(nodesRunning, node)
-
-					if isPodStatusReady(v.Status) {
-						nodesReady = append(nodesReady, node)
-						// Check pod not terminating
-						if v.GetDeletionTimestamp() == nil {
-							nodes = append(nodes, node)
-						}
-					}
-				}
-			}
-		}
-
-		if len(nodes) > 0 {
-			// Works same as service endpoints
-		} else if len(nodesReady) > 0 {
-			// 2 level of panic modes as safe guard, because old wrong behavior can be used by someone
-			// Publish all endpoints not always a bad thing
-			log.Debugf("All pods in terminating state, use ready")
-			nodes = nodesReady
-		} else {
-			log.Debugf("All pods not ready, use all running")
-			nodes = nodesRunning
-		}
-	default:
+	if svc.Spec.ExternalTrafficPolicy == v1.ServiceExternalTrafficPolicyTypeLocal {
+		nodes = sc.nodesExternalTrafficPolicyTypeLocal(svc)
+	} else {
+		var err error
 		nodes, err = sc.nodeInformer.Lister().List(labels.Everything())
 		if err != nil {
 			return nil, err
@@ -669,15 +698,17 @@ func (sc *serviceSource) extractNodePortTargets(svc *v1.Service) (endpoint.Targe
 	}
 
 	access := getAccessFromAnnotations(svc.Annotations)
-	if access == "public" {
+	switch access {
+	case "public":
 		return append(externalIPs, ipv6IPs...), nil
-	}
-	if access == "private" {
+	case "private":
 		return internalIPs, nil
 	}
+
 	if len(externalIPs) > 0 {
 		return append(externalIPs, ipv6IPs...), nil
 	}
+
 	return internalIPs, nil
 }
 
@@ -731,4 +762,32 @@ func (sc *serviceSource) AddEventHandler(_ context.Context, handler func()) {
 	if sc.listenEndpointEvents {
 		sc.endpointsInformer.Informer().AddEventHandler(eventHandlerFunc(handler))
 	}
+}
+
+type serviceTypes struct {
+	enabled bool
+	types   map[v1.ServiceType]bool
+}
+
+// newServiceTypesFilter processes a slice of service type filter strings and returns a serviceTypes struct.
+// It validates the filter against known Kubernetes service types. If the filter is empty or contains an empty string,
+// service type filtering is disabled. If an unknown type is found, an error is returned.
+func newServiceTypesFilter(filter []string) (*serviceTypes, error) {
+	if len(filter) == 0 || slices.Contains(filter, "") {
+		return &serviceTypes{
+			enabled: false,
+		}, nil
+	}
+	types := make(map[v1.ServiceType]bool)
+	for _, serviceType := range filter {
+		if _, ok := knownServiceTypes[v1.ServiceType(serviceType)]; !ok {
+			return nil, fmt.Errorf("unsupported service type filter: %q. Supported types are: %q", serviceType, slices.Collect(maps.Keys(knownServiceTypes)))
+		}
+		types[v1.ServiceType(serviceType)] = true
+	}
+
+	return &serviceTypes{
+		enabled: true,
+		types:   types,
+	}, nil
 }

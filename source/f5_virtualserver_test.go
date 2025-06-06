@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	fakeDynamic "k8s.io/client-go/dynamic/fake"
 	fakeKube "k8s.io/client-go/kubernetes/fake"
+
 	"sigs.k8s.io/external-dns/endpoint"
 
 	f5 "github.com/F5Networks/k8s-bigip-ctlr/v2/config/apis/cis/v1"
@@ -63,7 +64,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 					Host:                 "www.example.com",
 					VirtualServerAddress: "192.168.1.100",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "192.168.1.200",
 					Status:    "OK",
 				},
@@ -96,7 +97,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 					Host:                 "www.example.com",
 					VirtualServerAddress: "192.168.1.100",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "192.168.1.200",
 					Status:    "OK",
 				},
@@ -128,7 +129,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 				Spec: f5.VirtualServerSpec{
 					Host: "www.example.com",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "192.168.1.100",
 					Status:    "OK",
 				},
@@ -160,7 +161,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 				Spec: f5.VirtualServerSpec{
 					Host: "www.example.com",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "",
 				},
 			},
@@ -185,7 +186,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 					Host:                 "www.example.com",
 					VirtualServerAddress: "192.168.1.100",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "192.168.1.100",
 					Status:    "OK",
 				},
@@ -221,7 +222,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 					Host:                 "www.example.com",
 					VirtualServerAddress: "192.168.1.100",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "192.168.1.100",
 					Status:    "OK",
 				},
@@ -246,7 +247,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 					Host:                 "www.example.com",
 					VirtualServerAddress: "192.168.1.100",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "192.168.1.100",
 					Status:    "OK",
 				},
@@ -281,7 +282,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 					Host:                 "www.example.com",
 					VirtualServerAddress: "192.168.1.100",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "",
 					Status:    "ERROR",
 					Error:     "Some error status message",
@@ -307,7 +308,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 					Host:      "www.example.com",
 					IPAMLabel: "test",
 				},
-				Status: f5.VirtualServerStatus{
+				Status: f5.CustomResourceStatus{
 					VSAddress: "None",
 					Status:    "OK",
 				},
@@ -345,7 +346,7 @@ func TestF5VirtualServerEndpoints(t *testing.T) {
 			endpoints, err := source.Endpoints(context.Background())
 			require.NoError(t, err)
 			assert.Len(t, endpoints, len(tc.expected))
-			assert.Equal(t, endpoints, tc.expected)
+			assert.Equal(t, tc.expected, endpoints)
 		})
 	}
 }
