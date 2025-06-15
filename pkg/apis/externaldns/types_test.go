@@ -19,7 +19,6 @@ package externaldns
 import (
 	"os"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -77,7 +76,7 @@ var (
 		CloudflareProxied:                      false,
 		CloudflareCustomHostnames:              false,
 		CloudflareCustomHostnamesMinTLSVersion: "1.0",
-		CloudflareCustomHostnamesCertificateAuthority: "google",
+		CloudflareCustomHostnamesCertificateAuthority: "none",
 		CloudflareDNSRecordsPerPage:                   100,
 		CloudflareDNSRecordsComment:                   "",
 		CloudflareRegionKey:                           "",
@@ -126,10 +125,6 @@ var (
 		RFC2136Host:                                   []string{""},
 		RFC2136LoadBalancingStrategy:                  "disabled",
 		OCPRouterName:                                 "default",
-		IBMCloudProxied:                               false,
-		IBMCloudConfigFile:                            "/etc/kubernetes/ibmcloud.json",
-		TencentCloudConfigFile:                        "/etc/kubernetes/tencent-cloud.json",
-		TencentCloudZoneType:                          "",
 		PiholeApiVersion:                              "5",
 		WebhookProviderURL:                            "http://localhost:8888",
 		WebhookProviderReadTimeout:                    5 * time.Second,
@@ -243,10 +238,6 @@ var (
 		RFC2136BatchChangeSize:                        100,
 		RFC2136Host:                                   []string{"rfc2136-host1", "rfc2136-host2"},
 		RFC2136LoadBalancingStrategy:                  "round-robin",
-		IBMCloudProxied:                               true,
-		IBMCloudConfigFile:                            "ibmcloud.json",
-		TencentCloudConfigFile:                        "tencent-cloud.json",
-		TencentCloudZoneType:                          "private",
 		PiholeApiVersion:                              "6",
 		WebhookProviderURL:                            "http://localhost:8888",
 		WebhookProviderReadTimeout:                    5 * time.Second,
@@ -397,10 +388,6 @@ func TestParseFlags(t *testing.T) {
 				"--rfc2136-load-balancing-strategy=round-robin",
 				"--rfc2136-host=rfc2136-host1",
 				"--rfc2136-host=rfc2136-host2",
-				"--ibmcloud-proxied",
-				"--ibmcloud-config-file=ibmcloud.json",
-				"--tencent-cloud-config-file=tencent-cloud.json",
-				"--tencent-cloud-zone-type=private",
 			},
 			envVars:  map[string]string{},
 			expected: overriddenConfig,
@@ -517,10 +504,6 @@ func TestParseFlags(t *testing.T) {
 				"EXTERNAL_DNS_RFC2136_BATCH_CHANGE_SIZE":                         "100",
 				"EXTERNAL_DNS_RFC2136_LOAD_BALANCING_STRATEGY":                   "round-robin",
 				"EXTERNAL_DNS_RFC2136_HOST":                                      "rfc2136-host1\nrfc2136-host2",
-				"EXTERNAL_DNS_IBMCLOUD_PROXIED":                                  "1",
-				"EXTERNAL_DNS_IBMCLOUD_CONFIG_FILE":                              "ibmcloud.json",
-				"EXTERNAL_DNS_TENCENT_CLOUD_CONFIG_FILE":                         "tencent-cloud.json",
-				"EXTERNAL_DNS_TENCENT_CLOUD_ZONE_TYPE":                           "private",
 			},
 			expected: overriddenConfig,
 		},
@@ -563,6 +546,6 @@ func TestPasswordsNotLogged(t *testing.T) {
 
 	s := cfg.String()
 
-	assert.False(t, strings.Contains(s, "pdns-api-key"))
-	assert.False(t, strings.Contains(s, "tsig-secret"))
+	assert.NotContains(t, s, "pdns-api-key")
+	assert.NotContains(t, s, "tsig-secret")
 }
