@@ -88,7 +88,9 @@ IMAGE_STAGING  = gcr.io/k8s-staging-external-dns/$(BINARY)
 REGISTRY      ?= us.gcr.io/k8s-artifacts-prod/external-dns
 IMAGE         ?= $(REGISTRY)/$(BINARY)
 VERSION       ?= $(shell git describe --tags --always --dirty --match "v*")
+GIT_REVISION  ?= $(shell git rev-parse HEAD)
 GIT_COMMIT    ?= $(shell git rev-parse --short HEAD)
+GIT_COMMIT    := $(or $(GIT_COMMIT),$(shell echo "$(GIT_REVISION)" | cut -c1-7))
 BUILD_FLAGS   ?= -v
 LDFLAGS       ?= -X sigs.k8s.io/external-dns/pkg/apis/externaldns.Version=$(VERSION) -w -s
 LDFLAGS       += -X sigs.k8s.io/external-dns/pkg/apis/externaldns.GitCommit=$(GIT_COMMIT)
@@ -108,7 +110,7 @@ build.push/multiarch: ko
 	VERSION=${VERSION} \
 	ko build --tags ${VERSION} --bare --sbom ${IMG_SBOM} \
 		--image-label org.opencontainers.image.source="https://github.com/kubernetes-sigs/external-dns" \
-		--image-label org.opencontainers.image.revision=$(shell git rev-parse HEAD) \
+		--image-label org.opencontainers.image.revision=$(GIT_REVISION) \
 		--platform=${IMG_PLATFORM}  --push=${IMG_PUSH} .
 
 build.image/multiarch:
