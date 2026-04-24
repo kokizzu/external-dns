@@ -584,3 +584,50 @@ tests:
             - apiGroups: ["gloo.solo.io","gateway.solo.io"]
               resources: ["proxies","virtualservices","gateways"]
               verbs: ["get","watch","list"]
+
+  - it: should include 'listenersets' in clusterwide RBAC rules for 'gateway-api' with a Gateway source being present and 'enableGatewayListenerSets' being set
+    set:
+      enableGatewayListenerSets: true
+      namespaced: false
+      sources:
+        - gateway-httproute
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["gateway.networking.k8s.io"]
+            resources: ["listenersets"]
+            verbs: ["get","watch","list"]
+        template: clusterrole.yaml
+
+  - it: should include 'listenersets' in namespaced RBAC rules for 'gateway-api' with a Gateway source being present and 'enableGatewayListenerSets' being set
+    set:
+      enableGatewayListenerSets: true
+      namespaced: true
+      gatewayNamespace: gateway-ns
+      sources:
+        - gateway-httproute
+    asserts:
+      # Gateway clusterrole should not have listenersets permissions
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["gateway.networking.k8s.io"]
+            resources: ["listenersets"]
+            verbs: ["get","watch","list"]
+        documentSelector:
+          path: metadata.name
+          value: rbac-external-dns
+        template: clusterrole.yaml
+
+      # Gateway role should exist and have listenersets permissions
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["gateway.networking.k8s.io"]
+            resources: ["listenersets"]
+            verbs: ["get","watch","list"]
+        documentSelector:
+          path: metadata.name
+          value: rbac-external-dns-gateway
+        template: clusterrole.yaml

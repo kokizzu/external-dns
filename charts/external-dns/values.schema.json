@@ -65,6 +65,10 @@
       "description": "Limit possible target zones by domain suffixes.",
       "type": "array"
     },
+    "enableGatewayListenerSets": {
+      "description": "if `true`, the Gateway API ListenerSet flag will be enabled.",
+      "type": "boolean"
+    },
     "enabled": {
       "description": "No effect - reserved for use in sub-charting",
       "type": [

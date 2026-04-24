@@ -216,3 +216,19 @@ tests:
       - contains:
           path: spec.template.spec.containers[?(@.name == "external-dns")].args
           content: "5000"
+
+  - it: should not include gateway-listener-sets flag when not set
+    set:
+      enableGatewayListenerSets: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[?(@.name == "external-dns")].args
+          value: "--gateway-listener-sets"
+
+  - it: should include gateway-listener-sets flag when set
+    set:
+      enableGatewayListenerSets: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[?(@.name == "external-dns")].args
+          content: "--gateway-listener-sets"
