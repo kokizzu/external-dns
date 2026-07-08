@@ -78,6 +78,10 @@ crd: controller-gen
 test:
 	go test -race -coverprofile=profile.cov ./...
 
+.PHONY: verify-dependency-security
+verify-dependency-security:
+	bash ./scripts/verify-dependency-security.sh
+
 # The build targets allow to build the binary and container image
 .PHONY: build
 
